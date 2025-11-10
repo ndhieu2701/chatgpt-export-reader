@@ -73,3 +73,27 @@ File viewer chỉ hoạt động nếu index.html nằm cùng thư mục export 
 Nếu bạn mở từ nơi khác, đường dẫn file:// có thể bị trình duyệt chặn vì lý do bảo mật.
 
 Tất cả hình ảnh, video, audio được tải trực tiếp từ ổ đĩa, không có upload lên Internet.
+
+🚀 Tính năng sắp tới (v13)
+
+🔍 Tìm kiếm theo nội dung tin nhắn
+
+🧩 Lọc hội thoại theo tiêu đề
+
+🎨 Giao diện tối (Dark Mode)
+
+📱 Giao diện responsive cho mobile
+
+📄 Giấy phép
+
+Phần mềm này được phát hành miễn phí, mã nguồn mở theo MIT License
+.
+Bạn có thể sử dụng, chỉnh sửa, hoặc mở rộng cho mục đích cá nhân hoặc công việc.
+
+🧑‍💻 Tác giả
+
+ChatGPT Export Viewer được viết bằng tay (và được hỗ trợ bởi GPT-5 😉).
+Nếu bạn thấy hữu ích, hãy ⭐ dự án trên GitHub để ủng hộ nhé!
+
+📸
+<img width="1874" height="842" alt="image" src="https://github.com/user-attachments/assets/acbd5f10-5fa3-4ad2-8e7e-307a7a1d0758" />
