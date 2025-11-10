@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<title>ChatGPT Export Viewer (v12.2)</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+:root {
+  --chat-bg: #f7f8fa;
+  --msg-radius: 10px;
+  --user-bg: #e6f0ff;
+  --assistant-bg: #fff;
+  --text-color: #1f1f1f;
+}
+body {
+  font-family: system-ui, sans-serif;
+  display: flex;
+  height: 100vh;
+  margin: 0;
+  background: var(--chat-bg);
+}
+#sidebar {
+  width: 280px;
+  border-right: 1px solid #ddd;
+  padding: 10px;
+  overflow-y: auto;
+  background: #fff;
+}
+#chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--chat-bg);
+}
+#messages {
+  flex: 1;
+  padding: 20px 40px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.message {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px;
+  border-radius: var(--msg-radius);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  max-width: 900px;
+  width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+  box-sizing: border-box;
+  line-height: 1.55;
+  color: var(--text-color);
+  font-size: 15px;
+}
+.assistant {
+  background: var(--assistant-bg);
+  border: 1px solid #eee;
+}
+.user {
+  background: var(--user-bg);
+  border: 1px solid #d0e0ff;
+}
+.message img, .message video, .message audio {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin-top: 10px;
+  border-radius: 8px;
+}
+.message img { loading: lazy; }
+.message video { preload: none; }
+pre code {
+  background: #f6f8fa;
+  padding: 8px;
+  border-radius: 8px;
+  display: block;
+  overflow-x: auto;
+  font-size: 13px;
+}
+blockquote {
+  border-left: 4px solid #ccc;
+  padding-left: 8px;
+  color: #555;
+  margin: 6px 0;
+}
+a {
+  color: #1677ff;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+.conversation-title {
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.conversation-title:hover {
+  background: #f0f5ff;
+}
+.conversation-title.active {
+  background: #e6f7ff;
+  font-weight: 600;
+}
+h2 {
+  padding: 10px 40px;
+  border-bottom: 1px solid #ddd;
+  margin: 0;
+  background: #fff;
+}
+#loadMore {
+  align-self: center;
+  background: #1677ff;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  margin: 12px 0 20px;
+}
+#loadMore:hover {
+  background: #0e5cd6;
+}
+</style>
+</head>
+<body>
+  <div id="sidebar">
+    <h3>📂 ChatGPT Export Viewer</h3>
+    <p><small>Chọn thư mục chứa <b>conversations.json</b> & file media</small></p>
+    <input type="file" id="folderInput" webkitdirectory directory multiple />
+    <hr />
+    <div id="conversationList"></div>
+  </div>
+  <div id="chat">
+    <h2>Chưa chọn hội thoại</h2>
+    <div id="messages"></div>
+    <button id="loadMore" style="display:none;">Tải thêm</button>
+  </div>
+
+<script>
+const folderInput = document.getElementById("folderInput");
+const conversationList = document.getElementById("conversationList");
+const messagesDiv = document.getElementById("messages");
+const loadMoreBtn = document.getElementById("loadMore");
+
+let conversations = [];
+let assetsJson = {};
+let jsonData = [];
+let currentMessages = [];
+let loadedCount = 0;
+const PAGE_SIZE = 100;
+
+function removeDangerousTags(html) {
+  return html
+    .replace(/<\s*(script|style|html|head|body)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/\son[a-z]+\s*=\s*(['"])[\s\S]*?\1/gi, "")
+    .replace(/\sstyle\s*=\s*(['"])[\s\S]*?\1/gi, "");
+}
+function removeInlineStylesRecursively(root) {
+  if (!root || !root.querySelectorAll) return;
+  root.querySelectorAll("[style]").forEach((n) => n.removeAttribute("style"));
+}
+
+// === Đọc thư mục ===
+folderInput.addEventListener("change", async (e) => {
+  console.clear();
+  const files = Array.from(e.target.files);
+  const jsonFile = files.find((f) => f.name === "conversations.json"); // ✅ đúng tên file
+  if (!jsonFile) {
+    alert("Không tìm thấy file conversations.json trong thư mục đã chọn!");
+    return;
+  }
+
+  const basePath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf("/"));
+  assetsJson = {};
+  for (const f of files) {
+    const lower = f.name.toLowerCase();
+    if (/\.(png|jpg|jpeg|gif|webp|mp4|webm|mp3|wav|ogg)$/i.test(lower)) {
+      assetsJson["file-service://" + lower.replace(/[^a-z0-9._-]/gi, "_")] =
+        "file://" + basePath + "/" + encodeURIComponent(f.name);
+    }
+  }
+
+  const text = await jsonFile.text();
+  jsonData = JSON.parse(text);
+  conversations = Array.isArray(jsonData) ? jsonData : [jsonData];
+  renderConversationList(conversations);
+});
+
+function renderConversationList(list) {
+  conversationList.innerHTML = "";
+  list.forEach((conv, i) => {
+    const div = document.createElement("div");
+    div.className = "conversation-title";
+    div.textContent = conv.title || `Cuộc trò chuyện ${i + 1}`;
+    div.onclick = () => {
+      document.querySelectorAll(".conversation-title").forEach((el) =>
+        el.classList.remove("active")
+      );
+      div.classList.add("active");
+      renderMessages(conv);
+    };
+    conversationList.appendChild(div);
+  });
+}
+
+function renderMessages(conv) {
+  document.querySelector("#chat h2").textContent = conv.title || "Không tiêu đề";
+  messagesDiv.innerHTML = "";
+  loadMoreBtn.style.display = "none";
+  currentMessages = getConversationMessages(conv);
+  loadedCount = 0;
+  renderNextPage();
+}
+
+function renderNextPage() {
+  const slice = currentMessages.slice(loadedCount, loadedCount + PAGE_SIZE);
+  slice.forEach((msg) => renderMessageNode(msg));
+  loadedCount += slice.length;
+  loadMoreBtn.style.display = loadedCount < currentMessages.length ? "block" : "none";
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+loadMoreBtn.onclick = renderNextPage;
+
+function renderMessageNode(msg) {
+  const bubble = document.createElement("div");
+  bubble.className = "message " + (msg.author === "ChatGPT" ? "assistant" : "user");
+  const fragment = document.createDocumentFragment();
+
+  msg.parts.forEach((part) => {
+    if (part.text) {
+      let safe = removeDangerousTags(part.text);
+      const filePattern = /\[File\]:\s*(file_[\w-]+\.[\w]+)/gi;
+      let lastIndex = 0;
+      let m;
+      const partContainer = document.createElement("div");
+
+      while ((m = filePattern.exec(safe)) !== null) {
+        const before = safe.slice(lastIndex, m.index);
+        if (before.trim().length) {
+          const html = marked.parse(before);
+          const tmp = document.createElement("div");
+          tmp.innerHTML = removeDangerousTags(html);
+          removeInlineStylesRecursively(tmp);
+          partContainer.appendChild(tmp);
+        }
+
+        const fileName = m[1];
+        const link = findAssetLink(fileName);
+        if (link) {
+          const ext = (fileName.split(".").pop() || "").toLowerCase();
+          if (["png","jpg","jpeg","gif","webp"].includes(ext)) {
+            const img = document.createElement("img");
+            img.loading = "lazy";
+            img.src = link;
+            img.alt = fileName;
+            partContainer.appendChild(img);
+          } else if (["mp4","webm"].includes(ext)) {
+            const v = document.createElement("video");
+            v.controls = true;
+            v.preload = "none";
+            v.src = link;
+            partContainer.appendChild(v);
+          } else if (["mp3","wav","ogg"].includes(ext)) {
+            const a = document.createElement("audio");
+            a.controls = true;
+            a.src = link;
+            partContainer.appendChild(a);
+          } else {
+            const a = document.createElement("a");
+            a.href = link; a.target = "_blank"; a.textContent = fileName;
+            partContainer.appendChild(a);
+          }
+        } else {
+          const missing = document.createElement("div");
+          missing.textContent = "[File]: " + fileName + " (not found)";
+          missing.style.color = "#a33";
+          partContainer.appendChild(missing);
+        }
+        lastIndex = filePattern.lastIndex;
+      }
+
+      const remaining = safe.slice(lastIndex);
+      if (remaining.trim().length) {
+        const html = marked.parse(remaining);
+        const tmp = document.createElement("div");
+        tmp.innerHTML = removeDangerousTags(html);
+        removeInlineStylesRecursively(tmp);
+        partContainer.appendChild(tmp);
+      }
+      fragment.appendChild(partContainer);
+    }
+    else if (part.asset && part.asset.asset_pointer) {
+      const link = findAssetLinkFromPointer(part.asset.asset_pointer);
+      if (link) {
+        const ext = (link.split(".").pop() || "").toLowerCase();
+        if (["png","jpg","jpeg","gif","webp"].includes(ext)) {
+          const img = document.createElement("img");
+          img.loading = "lazy";
+          img.src = link;
+          img.alt = "image";
+          fragment.appendChild(img);
+        } else if (["mp4","webm"].includes(ext)) {
+          const v = document.createElement("video");
+          v.controls = true;
+          v.preload = "none";
+          v.src = link;
+          fragment.appendChild(v);
+        } else if (["mp3","wav","ogg"].includes(ext)) {
+          const a = document.createElement("audio");
+          a.controls = true;
+          a.src = link;
+          fragment.appendChild(a);
+        } else {
+          const a = document.createElement("a");
+          a.href = link; a.target = "_blank"; a.textContent = link;
+          fragment.appendChild(a);
+        }
+      } else {
+        const d = document.createElement("div");
+        d.textContent = "[File]: -Deleted-";
+        fragment.appendChild(d);
+      }
+    }
+  });
+
+  bubble.appendChild(fragment);
+  messagesDiv.appendChild(bubble);
+}
+
+function getConversationMessages(conversation) {
+  var messages = [];
+  var currentNode = conversation.current_node;
+  while (currentNode != null) {
+    var node = conversation.mapping[currentNode];
+    if (
+      node.message &&
+      node.message.content &&
+      node.message.content.parts &&
+      node.message.content.parts.length > 0 &&
+      (node.message.author.role !== "system" ||
+        node.message.metadata.is_user_system_message)
+    ) {
+      let author = node.message.author.role;
+      if (author === "assistant" || author === "tool") author = "ChatGPT";
+      else if (author === "system" && node.message.metadata.is_user_system_message)
+        author = "Custom user info";
+      if (
+        node.message.content.content_type == "text" ||
+        node.message.content.content_type == "multimodal_text"
+      ) {
+        var parts = [];
+        for (var i = 0; i < node.message.content.parts.length; i++) {
+          var part = node.message.content.parts[i];
+          if (typeof part === "string" && part.length > 0) {
+            parts.push({ text: part });
+          } else if (part.content_type == "image_asset_pointer" || part.content_type == "video_container_asset_pointer") {
+            parts.push({ asset: part });
+          }
+        }
+        if (parts.length > 0) messages.push({ author, parts: parts });
+      }
+    }
+    currentNode = node.parent;
+  }
+  return messages.reverse();
+}
+
+function findAssetLink(fileName) {
+  fileName = fileName.toLowerCase();
+  for (const key in assetsJson) {
+    if (assetsJson[key].toLowerCase().includes(fileName))
+      return assetsJson[key];
+  }
+  return null;
+}
+function findAssetLinkFromPointer(pointer) {
+  if (assetsJson[pointer]) return assetsJson[pointer];
+  const name = pointer.split("/").pop();
+  return findAssetLink(name);
+}
+</script>
+</body>
+</html>
